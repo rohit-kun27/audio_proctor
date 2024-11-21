@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Proctoring</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        #meter-container {
+            width: 300px;
+            height: 20px;
+            background-color: #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 20px auto;
+            position: relative;
+        }
+
+        #meter-bar {
+            height: 100%;
+            width: 0;
+            background-color: #4CAF50;
+            transition: width 0.1s ease;
+        }
+
+        #threshold-line {
+            position: absolute;
+            height: 100%;
+            width: 2px;
+            background-color: red;
+            left: 50%; /* Represents intensity 0.5 */
+        }
+
+        #intensity-label {
+            margin-top: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Audio Proctoring System</h2>
+    <div>Audio Intensity:</div>
+    <div id="meter-container">
+        <div id="meter-bar"></div>
+        <div id="threshold-line"></div>
+    </div>
+    <div id="intensity-label">Intensity: 0</div>
+
+    <script>
+        let audioContext;
+        let analyser;
+        let microphone;
+        let javascriptNode;
+        let isRecording = false;
+
+        window.onload = () => {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then((stream) => {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+
+                    analyser.smoothingTimeConstant = 0.8;
+                    analyser.fftSize = 1024;
+
+                    microphone.connect(analyser);
+                    analyser.connect(javascriptNode);
+                    javascriptNode.connect(audioContext.destination);
+
+                    javascriptNode.onaudioprocess = processAudio;
+
+                    function processAudio() {
+                        const array = new Uint8Array(analyser.frequencyBinCount);
+                        analyser.getByteFrequencyData(array);
+
+                        let values = 0;
+                        for (let i = 0; i < array.length; i++) {
+                            values += array[i];
+                        }
+
+                        const average = values / array.length;
+                        const intensity = average / 256;
+
+                        // Update intensity meter
+                        const meterBar = document.getElementById("meter-bar");
+                        const intensityLabel = document.getElementById("intensity-label");
+                        meterBar.style.width = `${Math.min(intensity * 100, 100)}%`;
+                        intensityLabel.innerText = `Intensity: ${intensity.toFixed(2)}`;
+
+                        // Trigger recording if intensity exceeds threshold
+                        if (intensity > 0.2 && !isRecording) {
+                            isRecording = true;
+
+                            // Call the backend to start recording
+                            fetch("/start-recording")
+                                .then(response => response.json())
+                                .then(data => {
+                                    console.log(data.message);
+                                })
+                                .catch(error => {
+                                    console.error("Error starting recording:", error);
+                                });
+
+                            // Reset recording flag after 15 seconds
+                            setTimeout(() => {
+                                isRecording = false;
+                            }, 15000);
+                        }
+                    }
+                })
+                .catch((err) => console.error("Error accessing microphone: ", err));
+        };
+    </script>
+</body>
+</html>
